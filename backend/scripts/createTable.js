@@ -1,11 +1,12 @@
 const db = require('../config/db');
 require('dotenv').config();
 
-(async () => {
+const createSchema = async () => {
     try {
-        console.log("🏗️  Building database schema...");
+        console.log("🏗️  Starting full database schema build on Aiven...");
 
-        // 1. Departments Table
+        // 1. Create Departments Table
+        console.log("- Creating Departments...");
         await db.query(`
       CREATE TABLE IF NOT EXISTS Departments (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -14,7 +15,8 @@ require('dotenv').config();
       )
     `);
 
-        // 2. Stations Table (Depends on Departments)
+        // 2. Create Stations Table
+        console.log("- Creating Stations...");
         await db.query(`
       CREATE TABLE IF NOT EXISTS Stations (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -26,19 +28,44 @@ require('dotenv').config();
       )
     `);
 
-        // 3. Update Users Table (Add station_id if not there)
-        // We already have the Users table, let's just make sure it has the right columns
-        try {
-            await db.query(`ALTER TABLE Users ADD COLUMN station_id INT`);
-            await db.query(`ALTER TABLE Users ADD FOREIGN KEY (station_id) REFERENCES Stations(id)`);
-        } catch (e) {
-            console.log("Note: Users columns already exist or skipped.");
-        }
+        // 3. Create Users Table (if not exists) and add station_id
+        console.log("- Ensuring Users table is complete...");
+        await db.query(`
+      CREATE TABLE IF NOT EXISTS Users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'student') DEFAULT 'student',
+        station_id INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (station_id) REFERENCES Stations(id) ON DELETE SET NULL
+      )
+    `);
 
-        console.log("✅ All tables created successfully!");
+        // 4. Create Shifts Table (The one causing the 500 error!)
+        console.log("- Creating Shifts...");
+        await db.query(`
+      CREATE TABLE IF NOT EXISTS Shifts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        station_id INT NOT NULL,
+        clock_in DATETIME NOT NULL,
+        clock_out DATETIME,
+        description TEXT,
+        status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
+        FOREIGN KEY (station_id) REFERENCES Stations(id) ON DELETE CASCADE
+      )
+    `);
+
+        console.log("✅ Database build complete! All tables are ready.");
         process.exit(0);
     } catch (err) {
-        console.error('❌ Schema Build Failed:', err.message);
+        console.error('❌ Database build failed:', err.message);
         process.exit(1);
     }
-})();
+};
+
+createSchema();
