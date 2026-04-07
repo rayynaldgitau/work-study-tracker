@@ -3,16 +3,19 @@ require('dotenv').config();
 
 const rebuildDatabase = async () => {
     try {
-        console.log("🧨 Cleaning up old tables...");
-        // Must drop in this order due to Foreign Key constraints
-        await db.query(`DROP TABLE IF EXISTS Shifts`);
-        await db.query(`DROP TABLE IF EXISTS Users`);
-        await db.query(`DROP TABLE IF EXISTS Stations`);
-        await db.query(`DROP TABLE IF EXISTS Departments`);
+        console.log("🧨 Initializing Database Reset...");
 
-        console.log("🏗️  Building your Official Schema...");
+        // 1. Disable Foreign Key Checks (Crucial for Circular Dependencies)
+        await db.query('SET FOREIGN_KEY_CHECKS = 0');
 
-        // 1. Departments
+        // 2. Drop existing tables in any order
+        console.log("🗑️  Dropping old tables...");
+        await db.query('DROP TABLE IF EXISTS Shifts');
+        await db.query('DROP TABLE IF EXISTS Users');
+        await db.query('DROP TABLE IF EXISTS Stations');
+        await db.query('DROP TABLE IF EXISTS Departments');
+
+        console.log("🏗️  Creating Departments table...");
         await db.query(`
       CREATE TABLE Departments (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -21,7 +24,7 @@ const rebuildDatabase = async () => {
       )
     `);
 
-        // 2. Stations (Wait to add created_by FK until Users exists)
+        console.log("🏗️  Creating Stations table...");
         await db.query(`
       CREATE TABLE Stations (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -34,7 +37,7 @@ const rebuildDatabase = async () => {
       )
     `);
 
-        // 3. Users
+        console.log("🏗️  Creating Users table...");
         await db.query(`
       CREATE TABLE Users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -51,46 +54,61 @@ const rebuildDatabase = async () => {
       )
     `);
 
-        // 4. Add circular FK back to Stations
+        // 3. Add circular Foreign Key from Stations back to Users
         await db.query(`
-      ALTER TABLE Stations
-      ADD FOREIGN KEY (created_by) REFERENCES Users(id) ON DELETE SET NULL
+      ALTER TABLE Stations 
+      ADD CONSTRAINT fk_stations_created_by 
+      FOREIGN KEY (created_by) REFERENCES Users(id) ON DELETE SET NULL
     `);
 
-        // 5. Shifts
+        console.log("🏗️  Creating Shifts table...");
         await db.query(`
       CREATE TABLE Shifts (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         station_id INT,
         clock_in DATETIME NOT NULL,
-        clock_out DATETIME NOT NULL,
+        clock_out DATETIME,
         task_description TEXT,
-        total_hours DECIMAL(6,2) NOT NULL,
+        total_hours DECIMAL(6,2),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE,
         FOREIGN KEY (station_id) REFERENCES Stations(id) ON DELETE SET NULL
       )
     `);
 
+        // 4. Re-enable Foreign Key Checks
+        await db.query('SET FOREIGN_KEY_CHECKS = 1');
+        console.log("🛡️  Foreign Key constraints re-enabled.");
+
+        // 5. Seed Initial Data
         console.log("🌱 Seeding Initial Data...");
+
+        // Seed Departments
         await db.query(`INSERT INTO Departments (name) VALUES 
       ('Library'), ('IT Services'), ('Admissions'), ('Cafeteria'), ('Athletics')`);
 
-        await db.query(`INSERT INTO Stations (name, description, department_id) VALUES 
-      ('Front Desk', 'Library front desk attendant', 1),
-      ('Help Desk', 'IT support and ticketing', 2),
-      ('Application Review', 'Assist with admissions paperwork', 3),
-      ('Kitchen Prep', 'Cafeteria prep station', 4)`);
+        // Seed Admin User (Password is 'admin123')
+        const adminPasswordHash = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+        await db.query(`
+      INSERT INTO Users (name, email, password_hash, role) 
+      VALUES ('Admin Advisor', 'advisor@school.edu', ?, 'admin')`,
+            [adminPasswordHash]
+        );
 
-        await db.query(`INSERT INTO Users (name, email, password_hash, role) VALUES 
-      ('Advisor One', 'advisor@school.edu', 
-       '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'admin')`);
+        // Seed Initial Stations
+        await db.query(`INSERT INTO Stations (name, description, department_id, created_by) VALUES 
+      ('Front Desk', 'Library front desk attendant', 1, 1),
+      ('Help Desk', 'IT support and ticketing', 2, 1),
+      ('Application Review', 'Assist with admissions paperwork', 3, 1)`);
 
-        console.log("✅ Success! Database is fully synced and seeded.");
+        console.log("✅ Database successfully rebuilt and seeded!");
         process.exit(0);
+
     } catch (err) {
-        console.error('❌ Migration Failed:', err.message);
+        // Safety check: always try to re-enable checks if it fails
+        await db.query('SET FOREIGN_KEY_CHECKS = 1');
+        console.error('❌ Migration Failed:', err.stack);
         process.exit(1);
     }
 };
