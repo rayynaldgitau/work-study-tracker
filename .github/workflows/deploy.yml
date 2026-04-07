@@ -2,7 +2,7 @@ name: Deploy Vite Site
 
 on:
   push:
-    branches: ["master"] # Change to "main" if that is your primary branch
+    branches: ["master"] # Change to "main" if that is your branch
 
 permissions:
   contents: read
@@ -28,7 +28,6 @@ jobs:
         working-directory: ./frontend
 
       - name: Build
-        # This uses the variable you set in GitHub Settings
         run: npm run build
         working-directory: ./frontend
         env:
@@ -45,7 +44,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          environment:
-            name: github-pages
-            url: ${{ steps.deployment.outputs.page_url }}
